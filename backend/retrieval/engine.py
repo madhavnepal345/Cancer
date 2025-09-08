@@ -126,7 +126,6 @@ class CancerQAEngine:
             traceback.print_exc()
             return answer
 
-    # ------------------- Main Method ------------------- #
     def ask(self, question: str, method_order: Tuple[str, ...] = ("kb", "biobert", "llama")) -> QAResult:
         """Answer a question using Knowledge Base, BioBERT, and LLaMA."""
         try:
@@ -161,7 +160,6 @@ class CancerQAEngine:
                 biobert_answer = qa_result.get("answer", "")
                 biobert_score = qa_result.get("score", 0.0)
 
-                # Boost confidence based on metadata
                 metadata_boost = 0.05 if any(
                     k in [ct.lower() for c in chunks[0].metadata.get("cancer_types", [])]
                     for k in self._extract_keywords_from_question(question)
@@ -170,7 +168,6 @@ class CancerQAEngine:
                 conf = self.conf(max_similarity=max_sim, qa_score=biobert_score, context=context_text) + metadata_boost
 
                 if biobert_answer and conf >= 0.55:
-                    # 4. LLaMA rewrite/fluidify
                     if "llama" in method_order:
                         rewritten_answer = self._rewrite_with_llama(biobert_answer, context_text, question)
                     else:
