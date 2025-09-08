@@ -2,14 +2,12 @@ import json
 import chromadb
 from embeddings import EmbeddingGenerator
 from retrieval.qa_types import RetrievedChunk
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import os
 import glob
-import uuid
-import re
 import traceback
 
-# Example keywords for extraction (you can expand this list)
+# Example keywords for extraction
 CANCER_TYPES = [
     "glioma", "melanoma", "lung cancer", "kidney cancer",
     "squamous cell carcinoma", "breast cancer", "leukemia", "lymphoma"
@@ -24,14 +22,21 @@ TREATMENTS = [
     "chemotherapy", "radiation therapy", "surgery", "immunotherapy"
 ]
 
-def extract_metadata(text: str) -> Dict[str, List[str]]:
-    """Extract cancer types, organs, tumor characteristics, treatments from chunk text."""
+def extract_metadata(text: str) -> Dict[str, Optional[str]]:
+    """
+    Extract metadata from text.
+    Returns string or None instead of lists (ChromaDB restriction).
+    """
     text_lower = text.lower()
+
+    def join_or_none(matches: List[str]) -> Optional[str]:
+        return ", ".join(matches) if matches else ""
+
     return {
-        "cancer_types": [c for c in CANCER_TYPES if c.lower() in text_lower],
-        "organs_affected": [o for o in ORGANS if o.lower() in text_lower],
-        "tumor_characteristics": [t for t in TUMOR_CHARACTERISTICS if t.lower() in text_lower],
-        "treatments": [tr for tr in TREATMENTS if tr.lower() in text_lower]
+        "cancer_types": join_or_none([c for c in CANCER_TYPES if c.lower() in text_lower]),
+        "organs_affected": join_or_none([o for o in ORGANS if o.lower() in text_lower]),
+        "tumor_characteristics": join_or_none([t for t in TUMOR_CHARACTERISTICS if t.lower() in text_lower]),
+        "treatments": join_or_none([tr for tr in TREATMENTS if tr.lower() in text_lower])
     }
 
 class VectorDB:
@@ -49,10 +54,9 @@ class VectorDB:
             else:
                 print("Collection already has documents, skipping auto-load")
 
-    def load_chunks_from_json(self, json_path: str) -> List[Dict[str, str]]:
+    def load_chunks_from_json(self, json_path: str) -> List[Dict[str, Any]]:
         with open(json_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data
+            return json.load(f)
 
     def add_documents(self, json_path: str):
         try:
@@ -60,14 +64,13 @@ class VectorDB:
             chunks = self.load_chunks_from_json(json_path)
             print("Loaded", len(chunks), "chunks from JSON")
 
-            texts = []
-            ids = []
-            metadatas = []
+            texts, ids, metadatas = [], [], []
 
             for chunk in chunks:
                 if "text" in chunk and "id" in chunk:
                     texts.append(chunk["text"])
                     ids.append(str(chunk["id"]))
+
                     metadata = extract_metadata(chunk["text"])
                     metadata["chunk_id"] = str(chunk["id"])
                     metadatas.append(metadata)
@@ -173,7 +176,6 @@ class VectorDB:
 
         return True
 
-# Test block
 if __name__ == "__main__":
     print("Running VectorDB standalone test")
     db = VectorDB(auto_load=True)
