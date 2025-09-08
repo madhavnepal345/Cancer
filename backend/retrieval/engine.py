@@ -1,10 +1,10 @@
 from typing import List, Tuple
-from knowledgebase import KnowledgeBase
-from qa_types import QAResult, RetrievedChunk
-from biobert_qa import BioBertQA
-from confidence import ConfidenceScorer
+from .knowledgebase import KnowledgeBase
+from .qa_types import QAResult, RetrievedChunk
+from .biobert_qa import BioBertQA
+from .confidence import ConfidenceScorer
 from vector_db import VectorDB
-from retriever import Retriever
+from .retriever import Retriever
 import re
 import traceback
 
@@ -18,7 +18,7 @@ class CancerQAEngine:
         vectordb: VectorDB,
         retriever_k: int = 5,
         biobert_model: str = "microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract",
-        llama_model: str = "meta-llama/Llama-2-7b-chat-hf",
+        llama_model: str = "google/flan-t5-base",
     ):
         try:
             # Knowledge base
@@ -55,7 +55,6 @@ class CancerQAEngine:
             traceback.print_exc()
             raise e
 
-    # ------------------- Helper Methods ------------------- #
     def _extract_keywords_from_question(self, question: str) -> List[str]:
         """Extract keywords from user question (cancer types, organs)."""
         try:
