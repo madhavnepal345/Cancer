@@ -1,32 +1,24 @@
 import json
-import chromadb
-from embeddings import EmbeddingGenerator
-from retrieval.qa_types import RetrievedChunk
-from typing import List, Dict, Any, Optional
 import os
 import glob
 import traceback
+import faiss
+import numpy as np
+from embeddings import EmbeddingGenerator
+from retrieval.qa_types import RetrievedChunk
+from typing import List, Dict, Any, Optional
 
-# Example keywords for extraction
+# Example keywords for metadata extraction
 CANCER_TYPES = [
     "glioma", "melanoma", "lung cancer", "kidney cancer",
     "squamous cell carcinoma", "breast cancer", "leukemia", "lymphoma"
 ]
-ORGANS = [
-    "brain", "skin", "lung", "kidney", "breast", "liver", "colon"
-]
-TUMOR_CHARACTERISTICS = [
-    "high-grade", "low-grade", "infiltrating", "benign", "malignant"
-]
-TREATMENTS = [
-    "chemotherapy", "radiation therapy", "surgery", "immunotherapy"
-]
+ORGANS = ["brain", "skin", "lung", "kidney", "breast", "liver", "colon"]
+TUMOR_CHARACTERISTICS = ["high-grade", "low-grade", "infiltrating", "benign", "malignant"]
+TREATMENTS = ["chemotherapy", "radiation therapy", "surgery", "immunotherapy"]
+
 
 def extract_metadata(text: str) -> Dict[str, Optional[str]]:
-    """
-    Extract metadata from text.
-    Returns string or None instead of lists (ChromaDB restriction).
-    """
     text_lower = text.lower()
 
     def join_or_none(matches: List[str]) -> Optional[str]:
@@ -39,81 +31,84 @@ def extract_metadata(text: str) -> Dict[str, Optional[str]]:
         "treatments": join_or_none([tr for tr in TREATMENTS if tr.lower() in text_lower])
     }
 
-class VectorDB:
-    def __init__(self, persist_directory: str = "./chroma_db", collection_name: str = "cancer_awareness", auto_load: bool = True):
-        self.client = chromadb.PersistentClient(path=persist_directory)
-        self.collection = self.client.get_or_create_collection(name=collection_name)
+
+class VectorDBFAISS:
+    def __init__(self, index_path: str = "./faiss_index.index", auto_load: bool = True):
+        self.index_path = index_path
         self.embedder = EmbeddingGenerator(model_name="all-MiniLM-L6-v2")
-        print("Initialized VectorDB with collection:", collection_name)
-        self.debug_info()
+        self.dimension = self.embedder.model.get_sentence_embedding_dimension()
+        self.index = faiss.IndexFlatIP(self.dimension)  # cosine similarity
+        self.metadata_store: List[Dict[str, Any]] = []
+        print("Initialized VectorDBFAISS with dimension:", self.dimension)
 
-        if auto_load:
-            if self.collection.count() == 0:
-                print("Collection is empty, attempting auto-load")
-                self.auto_load_documents()
-            else:
-                print("Collection already has documents, skipping auto-load")
+        if auto_load and os.path.exists(self.index_path) and os.path.exists(self._metadata_path()):
+            self.load_index()
+            print("Loaded existing FAISS index and metadata")
+        else:
+            print("No existing index found, starting fresh")
 
-    def load_chunks_from_json(self, json_path: str) -> List[Dict[str, Any]]:
-        with open(json_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+    def _metadata_path(self):
+        return self.index_path.replace(".index", "_metadata.json")
 
-    def add_documents(self, json_path: str):
+    def add_documents(self, json_path: str, batch_size: int = 500):
         try:
             print("Loading documents from:", json_path)
-            chunks = self.load_chunks_from_json(json_path)
+            with open(json_path, "r", encoding="utf-8") as f:
+                chunks = json.load(f)
             print("Loaded", len(chunks), "chunks from JSON")
 
-            texts, ids, metadatas = [], [], []
-
+            texts, metadatas, ids = [], [], []
             for chunk in chunks:
                 if "text" in chunk and "id" in chunk:
                     texts.append(chunk["text"])
-                    ids.append(str(chunk["id"]))
-
                     metadata = extract_metadata(chunk["text"])
                     metadata["chunk_id"] = str(chunk["id"])
                     metadatas.append(metadata)
+                    ids.append(str(chunk["id"]))
 
             if not texts:
-                print("No valid chunks found in JSON file")
+                print("No valid chunks to add")
                 return
 
-            print("Embedding", len(texts), "texts")
-            embeddings = self.embedder.embed_texts(texts)
+            # Batch embeddings and add to FAISS
+            for start in range(0, len(texts), batch_size):
+                batch_texts = texts[start:start+batch_size]
+                batch_embeddings = self.embedder.embed_texts(batch_texts)
+                self.index.add(batch_embeddings)
+                self.metadata_store.extend(metadatas[start:start+batch_size])
+                print(f"Added batch {start}-{start+len(batch_texts)} to FAISS")
 
-            self.collection.add(
-                ids=ids,
-                documents=texts,
-                embeddings=embeddings.tolist(),
-                metadatas=metadatas
-            )
-            print("Added", len(texts), "documents to ChromaDB")
-            print("Total documents now:", self.collection.count())
+            self.save_index()
+            print(f"Total vectors in FAISS index: {self.index.ntotal}")
 
-        except FileNotFoundError:
-            print("JSON file not found:", json_path)
         except Exception as e:
             print("Error adding documents:", e)
             traceback.print_exc()
 
     def query(self, query_text: str, n_results: int = 3) -> Dict[str, Any]:
         try:
-            count = self.collection.count()
-            if count == 0:
-                print("Collection is empty")
+            if self.index.ntotal == 0:
+                print("FAISS index is empty")
                 return {"ids": [[]], "documents": [[]], "distances": [[]], "metadatas": [[]]}
 
-            query_embedding = self.embedder.embed_texts([query_text])[0]
-            results = self.collection.query(
-                query_embeddings=[query_embedding.tolist()],
-                n_results=min(n_results, count)
-            )
+            query_embedding = self.embedder.embed_texts([query_text])[0].reshape(1, -1)
+            distances, indices = self.index.search(query_embedding, min(n_results, self.index.ntotal))
 
-            print("Retrieved", len(results.get("documents", [[]])[0]), "results")
+            results = {"ids": [], "documents": [], "distances": [], "metadatas": []}
+            for idx_list, dist_list in zip(indices, distances):
+                ids, docs, dists, metas = [], [], [], []
+                for i, idx in enumerate(idx_list):
+                    if idx < len(self.metadata_store):
+                        meta = self.metadata_store[idx]
+                        ids.append(meta.get("chunk_id", ""))
+                        docs.append(meta.get("text", ""))
+                        dists.append(float(dist_list[i]))
+                        metas.append(meta)
+                results = {"ids": [ids], "documents": [docs], "distances": [dists], "metadatas": [metas]}
             return results
+
         except Exception as e:
-            print("Error querying ChromaDB:", e)
+            print("Error querying FAISS:", e)
             traceback.print_exc()
             return {"ids": [[]], "documents": [[]], "distances": [[]], "metadatas": [[]]}
 
@@ -126,57 +121,46 @@ class VectorDB:
 
         chunks = []
         for i, doc in enumerate(docs):
-            if i < len(ids) and i < len(dists):
-                chunks.append(RetrievedChunk(
-                    id=str(ids[i]),
-                    text=doc,
-                    score=1.0 - dists[i],
-                    metadata=metadatas[i] if i < len(metadatas) else {}
-                ))
+            chunks.append(RetrievedChunk(
+                id=str(ids[i]),
+                text=doc,
+                score=dists[i],  # already cosine similarity
+                metadata=metadatas[i] if i < len(metadatas) else {}
+            ))
         return chunks
 
     def debug_info(self):
-        try:
-            count = self.collection.count()
-            print("Collection", self.collection.name, "has", count, "documents")
-            if count > 0:
-                sample = self.collection.peek(limit=1)
-                print("Sample document IDs:", sample.get("ids", []))
-                sample_text = sample.get("documents", [[]])[0]
-                if sample_text:
-                    print("Sample text first 100 chars:", sample_text[0][:100])
-            else:
-                print("Database is empty")
-        except Exception as e:
-            print("Debug error:", e)
-            traceback.print_exc()
+        print("FAISS index total vectors:", self.index.ntotal)
+        if self.index.ntotal > 0:
+            print("Sample metadata:", self.metadata_store[0])
+
+    def save_index(self):
+        faiss.write_index(self.index, self.index_path)
+        with open(self._metadata_path(), "w", encoding="utf-8") as f:
+            json.dump(self.metadata_store, f, ensure_ascii=False, indent=2)
+        print("FAISS index and metadata saved to disk")
+
+    def load_index(self):
+        self.index = faiss.read_index(self.index_path)
+        with open(self._metadata_path(), "r", encoding="utf-8") as f:
+            self.metadata_store = json.load(f)
+        print("FAISS index and metadata loaded from disk")
 
     def auto_load_documents(self, search_paths=None):
         if search_paths is None:
             search_paths = ["./data/"]
-
         json_files = []
         for path in search_paths:
             if os.path.exists(path):
-                found_files = glob.glob(os.path.join(path, "**", "*.json"), recursive=True)
-                json_files.extend(found_files)
-                print("Found", len(found_files), "JSON files in", path)
-
-        if not json_files:
-            print("No JSON files found in search paths")
-            return False
-
-        print("JSON files to load:", json_files)
+                json_files.extend(glob.glob(os.path.join(path, "**", "*.json"), recursive=True))
         for json_file in json_files:
-            try:
-                self.add_documents(json_file)
-            except Exception as e:
-                print("Failed to load", json_file, ":", e)
-                traceback.print_exc()
+            self.add_documents(json_file)
 
-        return True
 
 if __name__ == "__main__":
-    print("Running VectorDB standalone test")
-    db = VectorDB(auto_load=True)
+    print("Running VectorDBFAISS standalone test")
+    db = VectorDBFAISS(auto_load=True)
     db.debug_info()
+    query_results = db.query_as_chunks("What is treatment for lung cancer?", n_results=3)
+    for chunk in query_results:
+        print(chunk.id, chunk.score, chunk.metadata.get("cancer_types"), chunk.text[:100])
