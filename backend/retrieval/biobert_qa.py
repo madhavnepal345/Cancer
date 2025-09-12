@@ -2,10 +2,8 @@ from transformers import pipeline, AutoTokenizer, AutoModelForQuestionAnswering
 import os
 
 class BioBertQA:
-    def __init__(self, model_name="microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract", device=-1):
-        """
-        Load either a fine-tuned model or the base PubMedBERT QA model.
-        """
+    def __init__(self, model_name="dmis-lab/biobert-base-cased-v1.1-squad", device=-1):
+      
         # If a local fine-tuned checkpoint exists, use it
         if os.path.isdir(model_name):
             model_path = model_name
@@ -15,7 +13,7 @@ class BioBertQA:
         self.qa = pipeline(
             "question-answering",
             model=AutoModelForQuestionAnswering.from_pretrained(model_path),
-            tokenizer=AutoTokenizer.from_pretrained(model_path),
+            tokenizer=AutoTokenizer.from_pretrained(model_path,use_fast=False),
             device=device
         )
 
