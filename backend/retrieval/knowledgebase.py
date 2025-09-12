@@ -1,20 +1,26 @@
-from typing import List,Tuple,Optional
+import pickle
+from typing import List, Optional,Tuple
+from retrieval.qa_types import RetrievedChunk
+import numpy as np
+from embeddings import EmbeddingGenerator
 
 class KnowledgeBase:
-
-
-    def __init__(self):
+    def __init__(self, faiss_pkl_path: str = "data/cancer_chunks.pkl"):
+        # Fallback static entries
         self.entries: List[Tuple[List[str], str]] = [
-            ( ["emergency", "urgent", "severe bleeding", "trouble breathing"],
-            "If this is an emergency (e.g., severe pain, trouble breathing, heavy bleeding), call your local emergency number or visit the nearest hospital immediately.") ,
-            ( ["screening", "mammogram", "age"],
-            "Breast cancer screening with mammography is commonly recommended starting at age 40–50 depending on guidelines; consult a clinician for a plan based on your risk."),
-            ( ["hotline", "helpline"],
-            "For counseling and cancer support services, contact your national cancer society helpline (availability varies by country)."),
-            ( ["disclaimer"],
-            "This chatbot does not provide medical diagnosis. Always consult a qualified healthcare professional for personal medical advice."),
-            ]
+            (["emergency", "urgent"], "Call local emergency number immediately."),
+            (["screening", "mammogram"], "Breast cancer screening info..."),
+            (["hotline", "helpline"], "Contact your national cancer helpline."),
+            (["disclaimer"], "Always consult a qualified healthcare professional."),
+        ]
 
+        # Load FAISS index + chunks
+        with open(faiss_pkl_path, "rb") as f:
+            data = pickle.load(f)
+        self.index = data["index"]
+        self.chunks = data["chunks"]
+        self.embedder = EmbeddingGenerator()
+        self.dimension = self.embedder.model.get_sentence_embedding_dimension()
 
     def maybe_answer(self, question: str) -> Optional[str]:
         q = question.lower()
@@ -22,3 +28,20 @@ class KnowledgeBase:
             if all(k in q for k in keywords):
                 return reply
         return None
+
+    def retrieve(self, question: str, top_k: int = 3) -> List[RetrievedChunk]:
+        # Embed the query
+        q_emb = self.embedder.embed_texts([question]).astype(np.float32)
+        # Search FAISS
+        distances, indices = self.index.search(q_emb, top_k)
+        # Convert to RetrievedChunk
+        results = []
+        for i, idx in enumerate(indices[0]):
+            chunk = self.chunks[idx]
+            results.append(RetrievedChunk(
+                id=chunk.get("id", str(idx)),
+                text=chunk["text"],
+                score=float(distances[0][i]),
+                metadata=chunk.get("metadata", {})
+            ))
+        return results

@@ -1,65 +1,51 @@
-from sentence_transformers import SentenceTransformer
-import faiss
-import numpy as np
-import os
+# embedding.py (build_faiss_index.py style)
 import json
+import pickle
+import faiss
+from sentence_transformers import SentenceTransformer
+import numpy as np
 
 class EmbeddingGenerator:
     def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
         self.model = SentenceTransformer(model_name)
-        self.index = None
         self.dimension = self.model.get_sentence_embedding_dimension()
 
     def embed_texts(self, texts):
-        """
-        Generate embeddings for a list of texts.
-        Returns numpy array of shape (len(texts), embedding_dim)
-        """
         embeddings = self.model.encode(
             texts,
             convert_to_numpy=True,
             show_progress_bar=True,
-            normalize_embeddings=True  # good for cosine similarity
+            normalize_embeddings=True
         )
-        return embeddings.astype('float32')
+        return embeddings.astype("float32")
 
-    def build_faiss_index(self, embeddings, index_type="FlatL2"):
-        """
-        Build a FAISS index from embeddings.
-        index_type: 'FlatL2' (exact L2 search) or 'FlatIP' (cosine similarity)
-        """
-        if index_type == "FlatL2":
-            self.index = faiss.IndexFlatL2(self.dimension)
-        elif index_type == "FlatIP":
-            self.index = faiss.IndexFlatIP(self.dimension)
-        else:
-            raise ValueError("Unsupported index type. Use 'FlatL2' or 'FlatIP'.")
-        
-        self.index.add(embeddings)
-        print(f"FAISS index built with {self.index.ntotal} vectors.")
 
-    def save_index(self, index_path):
-        """Save FAISS index to disk."""
-        if self.index is None:
-            raise ValueError("Index is not built yet.")
-        faiss.write_index(self.index, index_path)
-        print(f"FAISS index saved at {index_path}")
+def build_and_save_faiss(json_path: str, output_pkl: str, index_type="FlatIP"):
+    with open(json_path, "r", encoding="utf-8") as f:
+        chunks = json.load(f)
 
-    def load_index(self, index_path):
-        """Load FAISS index from disk."""
-        if not os.path.exists(index_path):
-            raise FileNotFoundError(f"No index found at {index_path}")
-        self.index = faiss.read_index(index_path)
-        print(f"FAISS index loaded from {index_path}, total vectors: {self.index.ntotal}")
+    texts = [chunk["text"] for chunk in chunks]
+    embedder = EmbeddingGenerator()
+    embeddings = embedder.embed_texts(texts)
 
-    def search(self, query_embedding, top_k=5):
-        """
-        Search FAISS index for nearest neighbors.
-        Returns distances and indices of top_k results.
-        """
-        if self.index is None:
-            raise ValueError("Index is not built or loaded.")
-        query_embedding = query_embedding.astype('float32').reshape(1, -1)
-        distances, indices = self.index.search(query_embedding, top_k)
-        return distances[0], indices[0]
+    if index_type == "FlatIP":
+        index = faiss.IndexFlatIP(embedder.dimension)
+    else:
+        raise ValueError("Unsupported index type")
 
+    index.add(embeddings)
+
+    data_to_save = {"index": index, "chunks": chunks}
+    with open(output_pkl, "wb") as f:
+        pickle.dump(data_to_save, f)
+
+    print(f"Saved FAISS index + chunks to {output_pkl}")
+
+
+
+if __name__ == "__main__":
+    build_and_save_faiss(
+        json_path="data/Combined_Cancer_Chunks.json",   
+        output_pkl="data/cancer_chunks.pkl",
+        index_type="FlatIP"  
+    )
