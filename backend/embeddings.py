@@ -1,4 +1,3 @@
-# embedding.py (build_faiss_index.py style)
 import json
 import pickle
 import faiss
@@ -6,7 +5,7 @@ from sentence_transformers import SentenceTransformer
 import numpy as np
 
 class EmbeddingGenerator:
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+    def __init__(self, model_name: str = "microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract"):
         self.model = SentenceTransformer(model_name)
         self.dimension = self.model.get_sentence_embedding_dimension()
 
