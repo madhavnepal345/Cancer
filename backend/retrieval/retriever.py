@@ -15,7 +15,8 @@ class Retriever:
         self.index = data["index"]      # FAISS index
         self.chunks = data["chunks"]    # List of dicts with 'id', 'text', 'metadata'
 
-    def fetch(self, query_text: str):
+    def fetch(self, query_text: str,top_k:int=None):
+        top_k=top_k or self.top_k
         if self.index.ntotal == 0:
             return []
 
@@ -24,6 +25,8 @@ class Retriever:
 
         results = []
         for i, idx in enumerate(indices[0]):
+            if idx<0 or idx >=len(self.chunks):
+                continue
             chunk = self.chunks[idx]
             sim_score = float(distances[0][i])
             results.append(RetrievedChunk(

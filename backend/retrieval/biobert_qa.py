@@ -4,11 +4,10 @@ import os
 class BioBertQA:
     def __init__(self, model_name="dmis-lab/biobert-base-cased-v1.1-squad", device=-1):
       
-        # If a local fine-tuned checkpoint exists, use it
         if os.path.isdir(model_name):
             model_path = model_name
         else:
-            model_path = model_name  # Hugging Face model
+            model_path = model_name  
 
         self.qa = pipeline(
             "question-answering",
@@ -18,9 +17,9 @@ class BioBertQA:
         )
 
     def answer(self, question: str, context: str):
-        """
-        Returns a dict with 'answer' and 'score'. Handles list outputs safely.
-        """
+        
+        #Returns a dict with 'answer' and 'score'. Handles list outputs safely.
+      
         if not context.strip():
             return {"answer": "", "score": 0.0}
 
