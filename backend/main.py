@@ -5,12 +5,10 @@ import logging
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List
-import pickle
-
-from embeddings import EmbeddingGenerator, build_and_save_faiss
 from retrieval.engine import CancerQAEngine
 from retrieval.qa_types import QAResult, RetrievedChunk
-from retrieval.retriever import Retriever  
+from retrieval.retriever import Retriever  # updated retriever
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -33,22 +31,21 @@ class AskResponse(BaseModel):
 
 
 # --- Initialize FAISS embedding & retriever ---
-DATA_PKL = "./data/cancer_chunks.pkl"
+FAISS_INDEX_PATH = "./data/cancer_index_checkpoint.faiss"
+CHUNKS_PKL_PATH = "./data/cancer_chunks.pkl"
 TOP_K = 5
 
 try:
-    # Load prebuilt FAISS index + chunks
-    with open(DATA_PKL, "rb") as f:
-        faiss_data = pickle.load(f)
-
-    index = faiss_data["index"]
-    chunks = faiss_data["chunks"]
-
     # Embedding generator
+    from embeddings import EmbeddingGenerator
     embedder = EmbeddingGenerator()
 
-    # Retriever wrapper
-    retriever = Retriever(faiss_pkl_path=DATA_PKL, top_k=TOP_K)
+    # Retriever wrapper (loads FAISS index and chunks separately)
+    retriever = Retriever(
+        faiss_index_path=FAISS_INDEX_PATH,
+        chunks_pkl_path=CHUNKS_PKL_PATH,
+        top_k=TOP_K
+    )
 
     # QA Engine
     qa_engine = CancerQAEngine(vectordb=retriever, retriever_k=TOP_K)
@@ -84,7 +81,7 @@ def ask_question(req: AskRequest):
 @app.get("/health")
 def health_check():
     try:
-        count = len(chunks)
+        count = len(retriever.chunks)
         return {"status": "ok", "collection_count": count}
     except Exception as e:
         logger.error("Health check failed: %s", e)

@@ -17,8 +17,8 @@ class KnowledgeBase:
         # Load FAISS index + chunks
         with open(faiss_pkl_path, "rb") as f:
             data = pickle.load(f)
-        self.index = data["index"]
-        self.chunks = data["chunks"]
+        self.index = data[0]
+        self.chunks = data[1]
         self.embedder = EmbeddingGenerator()
         self.dimension = self.embedder.model.get_sentence_embedding_dimension()
 

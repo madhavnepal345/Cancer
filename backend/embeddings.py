@@ -3,48 +3,89 @@ import pickle
 import faiss
 from sentence_transformers import SentenceTransformer
 import numpy as np
+import os
+import time
+import torch
+
+import os
+os.environ["OMP_NUM_THREADS"] = "4"  # adjust 2–4
+os.environ["MKL_NUM_THREADS"] = "4"
+
+device = 0 if torch.cuda.is_available() else -1  # 0 = first GPU, -1 = CPU fallback
+print("Using device:", device)
 
 class EmbeddingGenerator:
-    def __init__(self, model_name: str = "microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract"):
+    def __init__(self, model_name: str = "pritamdeka/S-PubMedBert-MS-MARCO"):
         self.model = SentenceTransformer(model_name)
         self.dimension = self.model.get_sentence_embedding_dimension()
 
-    def embed_texts(self, texts):
+    def embed_texts(self, texts, batch_size=16):
         embeddings = self.model.encode(
             texts,
             convert_to_numpy=True,
             show_progress_bar=True,
-            normalize_embeddings=True
+            normalize_embeddings=True,
+            batch_size=batch_size
+            
+
         )
         return embeddings.astype("float32")
 
 
-def build_and_save_faiss(json_path: str, output_pkl: str, index_type="FlatIP"):
+def build_and_save_faiss_checkpoint(
+    json_path: str,
+    output_index_path: str,
+    output_chunks_path: str,
+    index_type="FlatIP",
+    batch_size=16,
+    sleep_sec=2
+):
+
+    # Load chunks
     with open(json_path, "r", encoding="utf-8") as f:
         chunks = json.load(f)
 
-    texts = [chunk["text"] for chunk in chunks]
     embedder = EmbeddingGenerator()
-    embeddings = embedder.embed_texts(texts)
 
-    if index_type == "FlatIP":
-        index = faiss.IndexFlatIP(embedder.dimension)
+    # Initialize or load FAISS index
+    if os.path.exists(output_index_path):
+        print("Resuming from existing FAISS index...")
+        index = faiss.read_index(output_index_path)
+        start_idx = index.ntotal
+        print(f"Starting from chunk {start_idx}")
     else:
-        raise ValueError("Unsupported index type")
+        print("Creating new FAISS index...")
+        if index_type == "FlatIP":
+            index = faiss.IndexFlatIP(embedder.dimension)
+        else:
+            raise ValueError("Unsupported index type")
+        start_idx = 0
 
-    index.add(embeddings)
+    # Loop over batches
+    for i in range(start_idx, len(chunks), batch_size):
+        batch_chunks = chunks[i:i+batch_size]
+        texts = [c["text"] for c in batch_chunks]
 
-    data_to_save = {"index": index, "chunks": chunks}
-    with open(output_pkl, "wb") as f:
-        pickle.dump(data_to_save, f)
+        embeddings = embedder.embed_texts(texts, batch_size=batch_size)
+        index.add(embeddings)
 
-    print(f"Saved FAISS index + chunks to {output_pkl}")
+        # Save after each batch
+        faiss.write_index(index, output_index_path)
+        with open(output_chunks_path, "wb") as f:
+            pickle.dump(chunks, f)
 
+        print(f"Processed chunks {i} -> {i+len(batch_chunks)} / {len(chunks)}")
+        time.sleep(sleep_sec)  # To avoid potential resource issues
+
+    print(f"FAISS index and chunks saved. Total chunks embedded: {len(chunks)}")
 
 
 if __name__ == "__main__":
-    build_and_save_faiss(
-        json_path="data/Combined_Cancer_Chunks.json",   
-        output_pkl="data/cancer_chunks.pkl",
-        index_type="FlatIP"  
+    build_and_save_faiss_checkpoint(
+        json_path="data/Combined_Cancer_Chunks.json",
+        output_index_path="data/cancer_index_checkpoint.faiss",
+        output_chunks_path="data/cancer_chunks.pkl",
+        index_type="FlatIP",
+        batch_size=16  # Adjust depending on your RAM
+        
     )

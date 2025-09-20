@@ -18,9 +18,7 @@ TUMOR_CHARACTERISTICS = ["malignant", "benign", "infiltrating", "metastatic", "h
 ALL_KEYWORDS = [*CANCER_TYPES, *ORGANS, *TREATMENTS, *TUMOR_CHARACTERISTICS]
 
 def map_to_canonical(word: str) -> str:
-    """
-    Map a word to canonical keyword from the lists if possible.
-    """
+    
     word = word.lower().rstrip("s")  
     for kw in ALL_KEYWORDS:
         if word in kw.lower():  
@@ -65,11 +63,8 @@ class CancerQAEngine:
             traceback.print_exc()
             raise e
 
-    # --- Helper methods ---
     def _extract_keywords_from_question(self, question: str) -> List[str]:
-        """
-        Extract keywords from question and map them to canonical terms.
-        """
+       
         try:
             words = re.findall(r'\b\w+\b', question.lower())
             normalized = [map_to_canonical(w) for w in words]
@@ -79,11 +74,7 @@ class CancerQAEngine:
             return []
 
     def _filter_chunks_by_metadata(self, chunks: List[RetrievedChunk], question: str) -> List[RetrievedChunk]:
-        """
-        Score and sort chunks based on relevance to question keywords.
-        Uses canonical mapping for both question and metadata.
-        Returns top 3 chunks for LLaMA context.
-        """
+      
         try:
             keywords = set(self._extract_keywords_from_question(question))
             scored_chunks = []
@@ -92,7 +83,6 @@ class CancerQAEngine:
                 meta = c.metadata or {}
                 score = 0
 
-                # Normalize metadata fields using canonical mapping
                 cancer_types = meta.get("cancer_types") or []
                 organs_affected = meta.get("organs_affected") or []
 
@@ -105,7 +95,6 @@ class CancerQAEngine:
                 organs_lower = [map_to_canonical(o) for o in organs_affected]
                 text_lower = c.text.lower()
 
-                # Weighted scoring
                 if any(k in cancer_types_lower for k in keywords):
                     score += 5
                 if any(k in organs_lower for k in keywords):
@@ -131,10 +120,7 @@ class CancerQAEngine:
 
 
     def _concat_context(self, chunks: List[RetrievedChunk], limit_chars: int = 2000) -> str:
-        """
-        Concatenate chunk text + metadata up to a character limit.
-        Metadata is prepended to each chunk for LLaMA to see structured info first.
-        """
+       
         try:
             out = []
             total = 0
