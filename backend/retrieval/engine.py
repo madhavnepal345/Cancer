@@ -6,7 +6,8 @@ from typing import List, Optional
 from .knowledgebase import KnowledgeBase
 from .qa_types import QAResult, RetrievedChunk
 from embeddings import EmbeddingGenerator
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
+from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+import torch
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,6 @@ TUMOR_CHARACTERISTICS = ["malignant", "benign", "infiltrating", "metastatic", "h
 ALL_KEYWORDS = [*CANCER_TYPES, *ORGANS, *TREATMENTS, *TUMOR_CHARACTERISTICS]
 
 def map_to_canonical(word: str) -> str:
-    
     word = word.lower().rstrip("s")  
     for kw in ALL_KEYWORDS:
         if word in kw.lower():  
@@ -28,28 +28,47 @@ def map_to_canonical(word: str) -> str:
 class CancerQAEngine:
     def __init__(
         self,
-        vectordb,  
+        vectordb,
         retriever_k: int = 5,
-        llama_model: str = "google/flan-t5-base",
-        max_new_tokens: int = 256,
+        llama_model: str = "adityak74/medfit-llm-3B",
+        max_new_tokens: int = 500,
         device: Optional[int] = None,
+        quantization: Optional[str] = "8bit",
+        checkpoint_dir: Optional[str] = None,
     ):
         try:
             # Knowledge base
             self.kb = KnowledgeBase()
 
-            # Retriever (FAISS or custom)
+            # Retriever
             self.retriever = vectordb
             self.retriever_k = retriever_k
 
             # Device
-            self.device = device if device is not None else -1
+            self.device = device if device is not None else 0 if torch.cuda.is_available() else -1
 
-            # LLaMA / Flan-T5 setup
-            self.llama_tokenizer = AutoTokenizer.from_pretrained(llama_model)
-            self.llama_model = AutoModelForSeq2SeqLM.from_pretrained(llama_model)
+            # Load tokenizer
+            if checkpoint_dir:
+                self.llama_tokenizer = AutoTokenizer.from_pretrained(checkpoint_dir)
+            else:
+                self.llama_tokenizer = AutoTokenizer.from_pretrained(llama_model)
+
+            # Load model with optional quantization
+            model_kwargs = {"device_map": "auto"} if self.device != -1 else {}
+
+            if quantization == "8bit":
+                model_kwargs["load_in_8bit"] = True
+            elif quantization == "4bit":
+                model_kwargs["load_in_4bit"] = True
+
+            if checkpoint_dir:
+                self.llama_model = AutoModelForCausalLM.from_pretrained(checkpoint_dir, **model_kwargs)
+            else:
+                self.llama_model = AutoModelForCausalLM.from_pretrained(llama_model, **model_kwargs)
+
+            # Pipeline
             self.llama_pipeline = pipeline(
-                "text2text-generation",
+                "text-generation",
                 model=self.llama_model,
                 tokenizer=self.llama_tokenizer,
                 max_length=max_new_tokens,
@@ -57,24 +76,24 @@ class CancerQAEngine:
                 temperature=0.7
             )
 
-            logger.info(f"CancerQAEngine initialized with top_k={retriever_k}")
+            logger.info(f"CancerQAEngine initialized with top_k={retriever_k}, model={llama_model}, quant={quantization}")
         except Exception as e:
             logger.error("Failed to initialize CancerQAEngine: %s", e)
             traceback.print_exc()
             raise e
 
+    # --- Keyword extraction ---
     def _extract_keywords_from_question(self, question: str) -> List[str]:
-       
         try:
             words = re.findall(r'\b\w+\b', question.lower())
             normalized = [map_to_canonical(w) for w in words]
-            return list(set(normalized))  # unique keywords
+            return list(set(normalized))
         except Exception as e:
             logger.error("Keyword extraction failed: %s", e)
             return []
 
+    # --- Filter chunks using metadata ---
     def _filter_chunks_by_metadata(self, chunks: List[RetrievedChunk], question: str) -> List[RetrievedChunk]:
-      
         try:
             keywords = set(self._extract_keywords_from_question(question))
             scored_chunks = []
@@ -105,22 +124,17 @@ class CancerQAEngine:
                 if score > 0:
                     scored_chunks.append((score, c))
 
-            # Sort descending by score
             scored_chunks.sort(key=lambda x: x[0], reverse=True)
             filtered_chunks = [c for score, c in scored_chunks]
 
-            # Take only top 3 chunks for relevance
             return filtered_chunks[:3] if filtered_chunks else chunks[:3]
-
         except Exception as e:
             logger.error("Chunk filtering failed: %s", e)
             traceback.print_exc()
             return chunks[:3]
 
-
-
+    # --- Concatenate context ---
     def _concat_context(self, chunks: List[RetrievedChunk], limit_chars: int = 2000) -> str:
-       
         try:
             out = []
             total = 0
@@ -129,7 +143,6 @@ class CancerQAEngine:
                 meta_text = []
                 meta = c.metadata or {}
 
-                # Include metadata fields in canonical order
                 for key, vocab_list in [
                     ("cancer_types", CANCER_TYPES),
                     ("organs_affected", ORGANS),
@@ -140,12 +153,10 @@ class CancerQAEngine:
                     if val:
                         if isinstance(val, str):
                             val = [val]
-                        # Keep only canonical terms
                         val_canonical = [map_to_canonical(v) for v in val]
                         meta_text.append(f"{key.replace('_',' ').title()}: {', '.join(val_canonical)}")
 
                 full_chunk = "\n".join(meta_text + [c.text])
-
                 if total + len(full_chunk) > limit_chars:
                     remaining = max(0, limit_chars - total)
                     if remaining > 0:
@@ -156,7 +167,6 @@ class CancerQAEngine:
                 total += len(full_chunk)
 
             return "\n\n".join(out)
-
         except Exception as e:
             logger.error("Context concatenation failed: %s", e)
             traceback.print_exc()
@@ -165,12 +175,10 @@ class CancerQAEngine:
     # --- Main ask method ---
     def ask(self, question: str) -> QAResult:
         try:
-            # 1. Knowledge Base
             kb_ans = self.kb.maybe_answer(question)
             if kb_ans:
                 return QAResult(answer=kb_ans, confidence=0.95, used_chunks=[], method="kb")
 
-            # 2. Retrieve chunks
             chunks = self.retriever.fetch(question, top_k=self.retriever_k)
             if not chunks:
                 return QAResult(
@@ -180,11 +188,9 @@ class CancerQAEngine:
                     method="fallback"
                 )
 
-            # 3. Filter and sort chunks
             chunks = self._filter_chunks_by_metadata(chunks, question)
-
-            # 4. Concatenate context
             context_text = self._concat_context(chunks)
+
             if not context_text.strip():
                 return QAResult(
                     answer="I don't have enough information to answer that.",
@@ -193,15 +199,14 @@ class CancerQAEngine:
                     method="fallback"
                 )
 
-            # 5. Generate answer with LLaMA / Flan-T5
             prompt = (
                 f"You are a careful cancer-awareness assistant. Answer the question using ONLY the provided context.\n\n"
                 f"Context:\n{context_text}\n\nQuestion: {question}\nAnswer:"
             )
+
             output = self.llama_pipeline(prompt)
             llama_answer = output[0].get("generated_text", "").replace(prompt, "").strip()
 
-            # 6. Confidence based on top chunk score
             max_sim = max([getattr(c, "score", 0.0) for c in chunks], default=0.0)
             conf = float(max_sim)
 
@@ -209,9 +214,8 @@ class CancerQAEngine:
                 answer=llama_answer if llama_answer else "I don't have enough information to answer that.",
                 confidence=conf,
                 used_chunks=chunks,
-                method="llama_rag"
+                method="medfit_llm_3b_rag"
             )
-
         except Exception as e:
             logger.error("QA engine failed: %s", e)
             traceback.print_exc()
