@@ -8,10 +8,10 @@ import time
 import torch
 
 import os
-os.environ["OMP_NUM_THREADS"] = "4"  # adjust 2–4
+os.environ["OMP_NUM_THREADS"] = "4"  
 os.environ["MKL_NUM_THREADS"] = "4"
 
-device = 0 if torch.cuda.is_available() else -1  # 0 = first GPU, -1 = CPU fallback
+device = 0 if torch.cuda.is_available() else -1  
 print("Using device:", device)
 
 class EmbeddingGenerator:
@@ -75,7 +75,7 @@ def build_and_save_faiss_checkpoint(
             pickle.dump(chunks, f)
 
         print(f"Processed chunks {i} -> {i+len(batch_chunks)} / {len(chunks)}")
-        time.sleep(sleep_sec)  # To avoid potential resource issues
+        time.sleep(sleep_sec)  
 
     print(f"FAISS index and chunks saved. Total chunks embedded: {len(chunks)}")
 
@@ -86,6 +86,6 @@ if __name__ == "__main__":
         output_index_path="data/cancer_index_checkpoint.faiss",
         output_chunks_path="data/cancer_chunks.pkl",
         index_type="FlatIP",
-        batch_size=16  # Adjust depending on your RAM
+        batch_size=16  
         
     )

@@ -44,16 +44,14 @@ class CancerQAEngine:
             self.retriever = vectordb
             self.retriever_k = retriever_k
 
-            # Device
+            
             self.device = device if device is not None else 0 if torch.cuda.is_available() else -1
 
-            # Load tokenizer
             if checkpoint_dir:
                 self.llama_tokenizer = AutoTokenizer.from_pretrained(checkpoint_dir)
             else:
                 self.llama_tokenizer = AutoTokenizer.from_pretrained(llama_model)
 
-            # Load model with optional quantization
             model_kwargs = {"device_map": "auto"} if self.device != -1 else {}
 
             if quantization == "8bit":
@@ -66,7 +64,6 @@ class CancerQAEngine:
             else:
                 self.llama_model = AutoModelForCausalLM.from_pretrained(llama_model, **model_kwargs)
 
-            # Pipeline
             self.llama_pipeline = pipeline(
                 "text-generation",
                 model=self.llama_model,
@@ -82,7 +79,6 @@ class CancerQAEngine:
             traceback.print_exc()
             raise e
 
-    # --- Keyword extraction ---
     def _extract_keywords_from_question(self, question: str) -> List[str]:
         try:
             words = re.findall(r'\b\w+\b', question.lower())
@@ -92,7 +88,6 @@ class CancerQAEngine:
             logger.error("Keyword extraction failed: %s", e)
             return []
 
-    # --- Filter chunks using metadata ---
     def _filter_chunks_by_metadata(self, chunks: List[RetrievedChunk], question: str) -> List[RetrievedChunk]:
         try:
             keywords = set(self._extract_keywords_from_question(question))
@@ -133,7 +128,6 @@ class CancerQAEngine:
             traceback.print_exc()
             return chunks[:3]
 
-    # --- Concatenate context ---
     def _concat_context(self, chunks: List[RetrievedChunk], limit_chars: int = 2000) -> str:
         try:
             out = []
@@ -172,7 +166,6 @@ class CancerQAEngine:
             traceback.print_exc()
             return ""
 
-    # --- Main ask method ---
     def ask(self, question: str) -> QAResult:
         try:
             kb_ans = self.kb.maybe_answer(question)

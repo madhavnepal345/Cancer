@@ -31,7 +31,6 @@ class BioBertQA:
                 return {"answer": "", "score": 0.0}
             qa_out = qa_out[0]
 
-        # Ensure dictionary
         if not isinstance(qa_out, dict):
             return {"answer": "", "score": 0.0}
 

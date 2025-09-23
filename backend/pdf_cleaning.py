@@ -6,29 +6,24 @@ import os
 from nltk.tokenize import sent_tokenize
 from transformers import AutoTokenizer
 
-# ------------------- CONFIGURATION ------------------- #
 PDF_FILES = [
     "data/Medical_book.pdf",
     "data/Encyclopedia of Cancer, 3rd Edition.pdf"
 ]
 OUTPUT_FILE = "data/Combined_Cancer_Chunks.json"
 
-# Chunk settings
-CHUNK_SIZE_TOKENS = 500     # Number of tokens per chunk
-MIN_CHUNK_LENGTH = 300      # Minimum characters per chunk
-CHUNK_OVERLAP_TOKENS = 50   # Optional overlap between chunks
+CHUNK_SIZE_TOKENS = 500     
+MIN_CHUNK_LENGTH = 300      
+CHUNK_OVERLAP_TOKENS = 50   
 
-# Metadata keyword lists
 CANCER_TYPES = ["lung cancer", "breast cancer", "glioma", "melanoma", "anal cancer", "kidney cancer"]
 ORGANS = ["lung", "brain", "breast", "skin", "anus", "kidney"]
 TREATMENTS = ["surgery", "chemotherapy", "radiotherapy", "immunotherapy", "targeted therapy"]
 TUMOR_CHARACTERISTICS = ["malignant", "benign", "infiltrating", "metastatic", "high-grade", "low-grade"]
 
-# Tokenizer for token-based chunking
 tokenizer = AutoTokenizer.from_pretrained("dmis-lab/biobert-base-cased-v1.1-squad")
 
 
-# ------------------- FUNCTIONS ------------------- #
 def extract_text_from_pdf(pdf_path, skip_first_page=True):
     """Extract all text from a PDF, optionally skipping the first page (publisher info, copyright, TOC)."""
     doc = fitz.open(pdf_path)
@@ -41,7 +36,6 @@ def extract_text_from_pdf(pdf_path, skip_first_page=True):
 
 
 def clean_text(text):
-    """Clean extracted text to remove unwanted content and formatting."""
     # Remove brackets and parentheses
     text = text.replace('[', ' ').replace(']', ' ')
     text = text.replace('(', ' ').replace(')', ' ')
@@ -68,7 +62,6 @@ def clean_text(text):
 
 
 def extract_metadata(chunk_text):
-    """Extract simple metadata based on keyword matching."""
     text_lower = chunk_text.lower()
     cancer_types = [c for c in CANCER_TYPES if c in text_lower]
     organs = [o for o in ORGANS if o in text_lower]
@@ -83,10 +76,7 @@ def extract_metadata(chunk_text):
 
 
 def split_text_into_chunks(text, chunk_size_tokens=CHUNK_SIZE_TOKENS, min_length=MIN_CHUNK_LENGTH, overlap_tokens=CHUNK_OVERLAP_TOKENS):
-    """
-    Split text into chunks based on token count with optional overlap.
-    Returns a list of chunk dictionaries with metadata.
-    """
+   
     sentences = sent_tokenize(text)
     chunks = []
     current_chunk = []
@@ -125,7 +115,6 @@ def split_text_into_chunks(text, chunk_size_tokens=CHUNK_SIZE_TOKENS, min_length
                 current_chunk = []
                 current_len = 0
 
-    # Add any remaining sentences
     if current_chunk:
         chunk_text = " ".join(current_chunk).strip()
         if len(chunk_text) >= min_length:
@@ -140,7 +129,6 @@ def split_text_into_chunks(text, chunk_size_tokens=CHUNK_SIZE_TOKENS, min_length
     return chunks
 
 
-# ------------------- MAIN PROCESS ------------------- #
 def main():
     all_chunks = []
 
