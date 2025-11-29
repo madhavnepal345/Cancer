@@ -6,30 +6,40 @@ from typing import List, Optional
 from .knowledgebase import KnowledgeBase
 from .qa_types import QAResult, RetrievedChunk
 from embeddings import EmbeddingGenerator
-from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline,BitsAndBytesConfig
 import torch
 
 logger = logging.getLogger(__name__)
 
-CANCER_TYPES = ["lung cancer", "breast cancer", "glioma", "melanoma", "anal cancer", "kidney cancer"]
+CANCER_TYPES = [
+    "lung cancer", "breast cancer", "glioma", "melanoma", "anal cancer", "kidney cancer"
+]
 ORGANS = ["lung", "brain", "breast", "skin", "anus", "kidney"]
 TREATMENTS = ["surgery", "chemotherapy", "radiotherapy", "immunotherapy", "targeted therapy"]
 TUMOR_CHARACTERISTICS = ["malignant", "benign", "infiltrating", "metastatic", "high-grade", "low-grade"]
 
 ALL_KEYWORDS = [*CANCER_TYPES, *ORGANS, *TREATMENTS, *TUMOR_CHARACTERISTICS]
 
+DIAGNOSTIC_KEYWORDS = [
+    "do i have", "am i sick", "am i at risk", "could i have",
+    "is it cancer", "do i have cancer", "should i be worried", "do i have tumor"
+]
+
+
 def map_to_canonical(word: str) -> str:
-    word = word.lower().rstrip("s")  
+    """Map a word to a canonical keyword if possible."""
+    word = word.lower().rstrip("s")
     for kw in ALL_KEYWORDS:
-        if word in kw.lower():  
+        if word in kw.lower():
             return kw
     return word
+
 
 class CancerQAEngine:
     def __init__(
         self,
         vectordb,
-        retriever_k: int = 5,
+        retriever_k: int = 7,
         llama_model: str = "adityak74/medfit-llm-3B",
         max_new_tokens: int = 500,
         device: Optional[int] = None,
@@ -37,43 +47,46 @@ class CancerQAEngine:
         checkpoint_dir: Optional[str] = None,
     ):
         try:
-            # Knowledge base
             self.kb = KnowledgeBase()
-
-            # Retriever
             self.retriever = vectordb
             self.retriever_k = retriever_k
-
-            
             self.device = device if device is not None else 0 if torch.cuda.is_available() else -1
 
-            if checkpoint_dir:
-                self.llama_tokenizer = AutoTokenizer.from_pretrained(checkpoint_dir)
-            else:
-                self.llama_tokenizer = AutoTokenizer.from_pretrained(llama_model)
+            self.llama_tokenizer = AutoTokenizer.from_pretrained(checkpoint_dir or llama_model)
 
             model_kwargs = {"device_map": "auto"} if self.device != -1 else {}
-
             if quantization == "8bit":
-                model_kwargs["load_in_8bit"] = True
+                bnb_config = BitsAndBytesConfig(load_in_8bit=True)
             elif quantization == "4bit":
-                model_kwargs["load_in_4bit"] = True
-
-            if checkpoint_dir:
-                self.llama_model = AutoModelForCausalLM.from_pretrained(checkpoint_dir, **model_kwargs)
+                bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype="float16"
+    )
             else:
-                self.llama_model = AutoModelForCausalLM.from_pretrained(llama_model, **model_kwargs)
+                 bnb_config = None
+
+            if bnb_config is not None:
+                model_kwargs["quantization_config"] = bnb_config
+
+            self.llama_model = AutoModelForCausalLM.from_pretrained(
+                checkpoint_dir or llama_model,
+                **model_kwargs
+                        )
 
             self.llama_pipeline = pipeline(
                 "text-generation",
                 model=self.llama_model,
                 tokenizer=self.llama_tokenizer,
-                max_length=max_new_tokens,
+                max_new_tokens=max_new_tokens,
                 do_sample=True,
                 temperature=0.7
             )
 
-            logger.info(f"CancerQAEngine initialized with top_k={retriever_k}, model={llama_model}, quant={quantization}")
+            logger.info(
+                f"CancerQAEngine initialized with top_k={retriever_k}, model={llama_model}, quant={quantization}"
+            )
         except Exception as e:
             logger.error("Failed to initialize CancerQAEngine: %s", e)
             traceback.print_exc()
@@ -128,21 +141,16 @@ class CancerQAEngine:
             traceback.print_exc()
             return chunks[:3]
 
-    def _concat_context(self, chunks: List[RetrievedChunk], limit_chars: int = 2000) -> str:
+    def _concat_context(self, chunks: List[RetrievedChunk], limit_tokens: int = 2000) -> str:
         try:
             out = []
-            total = 0
+            total_tokens = 0
 
             for c in chunks:
                 meta_text = []
                 meta = c.metadata or {}
 
-                for key, vocab_list in [
-                    ("cancer_types", CANCER_TYPES),
-                    ("organs_affected", ORGANS),
-                    ("tumor_characteristics", TUMOR_CHARACTERISTICS),
-                    ("treatments", TREATMENTS)
-                ]:
+                for key in ["cancer_types", "organs_affected", "tumor_characteristics", "treatments"]:
                     val = meta.get(key)
                     if val:
                         if isinstance(val, str):
@@ -151,14 +159,13 @@ class CancerQAEngine:
                         meta_text.append(f"{key.replace('_',' ').title()}: {', '.join(val_canonical)}")
 
                 full_chunk = "\n".join(meta_text + [c.text])
-                if total + len(full_chunk) > limit_chars:
-                    remaining = max(0, limit_chars - total)
-                    if remaining > 0:
-                        out.append(full_chunk[:remaining])
+                tokens = self.llama_tokenizer(full_chunk, return_tensors="pt")["input_ids"].shape[1]
+
+                if total_tokens + tokens > limit_tokens:
                     break
 
                 out.append(full_chunk)
-                total += len(full_chunk)
+                total_tokens += tokens
 
             return "\n\n".join(out)
         except Exception as e:
@@ -166,8 +173,30 @@ class CancerQAEngine:
             traceback.print_exc()
             return ""
 
-    def ask(self, question: str) -> QAResult:
+    def _is_diagnostic_question(self, question: str) -> bool:
+        q_lower = question.lower()
+        return any(keyword in q_lower for keyword in DIAGNOSTIC_KEYWORDS)
+
+    def ask(self, question: str, biobert_model=None, rag_model=None) -> QAResult:
+        """
+        Hybrid QA pipeline:
+        1. BioBERT (optional) - extractive
+        2. RAG (optional) - generative synthesis
+        3. LLaMA (compulsory) - final reasoning / fluent answer
+        """
         try:
+            if self._is_diagnostic_question(question):
+                return QAResult(
+                    answer=(
+                        "I am not a medical professional and cannot provide a diagnosis. "
+                        "Changes in your health, symptoms, or lab results may have multiple causes. "
+                        "Please consult a qualified physician for proper evaluation."
+                    ),
+                    confidence=0.0,
+                    method="safe-response",
+                    used_chunks=[]
+                )
+
             kb_ans = self.kb.maybe_answer(question)
             if kb_ans:
                 return QAResult(answer=kb_ans, confidence=0.95, used_chunks=[], method="kb")
@@ -192,9 +221,24 @@ class CancerQAEngine:
                     method="fallback"
                 )
 
+            biobert_answer, biobert_score = "", 0.0
+            if biobert_model:
+                res = biobert_model.answer(question, context_text)
+                biobert_answer, biobert_score = res.get("answer", ""), res.get("score", 0.0)
+
+            rag_answer = ""
+            if rag_model and (not biobert_answer.strip() or biobert_score < 0.8):
+                rag_answer = rag_model.generate(question, chunks)
+
+            final_context = context_text
+            if biobert_answer:
+                final_context += f"\n\nBioBERT Answer: {biobert_answer}"
+            if rag_answer:
+                final_context += f"\n\nRAG Answer: {rag_answer}"
+
             prompt = (
                 f"You are a careful cancer-awareness assistant. Answer the question using ONLY the provided context.\n\n"
-                f"Context:\n{context_text}\n\nQuestion: {question}\nAnswer:"
+                f"Context:\n{final_context}\n\nQuestion: {question}\nAnswer:"
             )
 
             output = self.llama_pipeline(prompt)
@@ -207,8 +251,9 @@ class CancerQAEngine:
                 answer=llama_answer if llama_answer else "I don't have enough information to answer that.",
                 confidence=conf,
                 used_chunks=chunks,
-                method="medfit_llm_3b_rag"
+                method="BioBERT→RAG→LLaMA"
             )
+
         except Exception as e:
             logger.error("QA engine failed: %s", e)
             traceback.print_exc()
