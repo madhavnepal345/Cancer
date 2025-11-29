@@ -21,7 +21,7 @@ class RAG:
         context_text = "\n\n".join([f"[Chunk {c.id} | sim={c.score:.2f}]\n{c.text}" for c in context_blocks])
         instructions = (
             "You are a careful cancer-awareness assistant. Answer the question using ONLY the provided context. "
-            "If the answer is not present, say 'I don't have enough information in the provided materials.' "
+            "If  answer is notthe present, say 'I don't have enough information in the provided materials.' "
             "Be concise, factual, and non-diagnostic."
         )
         return f"{instructions}\n\nContext:\n{context_text}\n\nQuestion: {question}\nAnswer:"
@@ -29,7 +29,7 @@ class RAG:
     def generate(self, question: str, context_blocks: List[RetrievedChunk]) -> str:
         prompt = self._build_prompt(question, context_blocks)
         inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True).to(self.model.device)
-        with torch.no_grad():  # CPU-friendly
+        with torch.no_grad():  
             outputs = self.model.generate(**inputs, max_new_tokens=self.max_new_tokens, do_sample=False)
         text = self.tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
         if self.kind == "causal" and "Answer:" in text:
