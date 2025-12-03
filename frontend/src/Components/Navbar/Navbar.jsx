@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Menu, X } from "lucide-react";
-import logo from "../../Images/logo.PNG"
+import logo from "../../Images/logo.png"
 import { Link } from "react-scroll";
 import { useNavigate } from "react-router-dom";
 
