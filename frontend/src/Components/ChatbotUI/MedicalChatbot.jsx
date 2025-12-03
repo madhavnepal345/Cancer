@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import logo from "../../Images/logo.PNG"
+import logo from "../../Images/logo.png"
 import { URL } from './constant';
 
 const MedicalChatbot = () => {
