@@ -7,7 +7,11 @@ import os
 import time
 import torch
 
-import os
+try:
+    from backend import config  # pragma: no cover
+except ImportError:  # pragma: no cover
+    import config
+
 os.environ["OMP_NUM_THREADS"] = "4"  
 os.environ["MKL_NUM_THREADS"] = "4"
 
@@ -15,8 +19,8 @@ device = 0 if torch.cuda.is_available() else -1
 print("Using device:", device)
 
 class EmbeddingGenerator:
-    def __init__(self, model_name: str = "pritamdeka/S-PubMedBert-MS-MARCO"):
-        self.model = SentenceTransformer(model_name)
+    def __init__(self, model_name: str = None):
+        self.model = SentenceTransformer(model_name or config.EMBEDDING_MODEL)
         self.dimension = self.model.get_sentence_embedding_dimension()
 
     def embed_texts(self, texts, batch_size=16):

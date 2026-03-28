@@ -6,8 +6,13 @@ from typing import List, Optional
 from .knowledgebase import KnowledgeBase
 from .qa_types import QAResult, RetrievedChunk
 from embeddings import EmbeddingGenerator
-from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline,BitsAndBytesConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 import torch
+
+try:
+    from backend import config  # pragma: no cover
+except ImportError:  # pragma: no cover
+    import config
 
 logger = logging.getLogger(__name__)
 
@@ -39,41 +44,27 @@ class CancerQAEngine:
     def __init__(
         self,
         vectordb,
-        retriever_k: int = 7,
-        llama_model: str = "adityak74/medfit-llm-3B",
+        retriever_k: int = None,
+        llama_model: Optional[str] = None,
         max_new_tokens: int = 500,
         device: Optional[int] = None,
-        quantization: Optional[str] = "8bit",
         checkpoint_dir: Optional[str] = None,
+        temperature: Optional[float] = None,
     ):
         try:
             self.kb = KnowledgeBase()
             self.retriever = vectordb
-            self.retriever_k = retriever_k
+            self.retriever_k = retriever_k if retriever_k is not None else config.TOP_K
             self.device = device if device is not None else 0 if torch.cuda.is_available() else -1
 
-            self.llama_tokenizer = AutoTokenizer.from_pretrained(checkpoint_dir or llama_model)
+            model_location = checkpoint_dir or llama_model or config.LLAMA_CHECKPOINT_DIR or config.LLAMA_MODEL
+            temperature = temperature if temperature is not None else config.LLAMA_TEMPERATURE
+
+            self.llama_tokenizer = AutoTokenizer.from_pretrained(model_location)
 
             model_kwargs = {"device_map": "auto"} if self.device != -1 else {}
-            if quantization == "8bit":
-                bnb_config = BitsAndBytesConfig(load_in_8bit=True)
-            elif quantization == "4bit":
-                bnb_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_use_double_quant=True,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_compute_dtype="float16"
-    )
-            else:
-                 bnb_config = None
 
-            if bnb_config is not None:
-                model_kwargs["quantization_config"] = bnb_config
-
-            self.llama_model = AutoModelForCausalLM.from_pretrained(
-                checkpoint_dir or llama_model,
-                **model_kwargs
-                        )
+            self.llama_model = AutoModelForCausalLM.from_pretrained(model_location, **model_kwargs)
 
             self.llama_pipeline = pipeline(
                 "text-generation",
@@ -81,11 +72,11 @@ class CancerQAEngine:
                 tokenizer=self.llama_tokenizer,
                 max_new_tokens=max_new_tokens,
                 do_sample=True,
-                temperature=0.7
+                temperature=temperature
             )
 
             logger.info(
-                f"CancerQAEngine initialized with top_k={retriever_k}, model={llama_model}, quant={quantization}"
+                f"CancerQAEngine initialized with top_k={retriever_k}, model={model_location}"
             )
         except Exception as e:
             logger.error("Failed to initialize CancerQAEngine: %s", e)

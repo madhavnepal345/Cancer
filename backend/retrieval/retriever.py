@@ -7,8 +7,9 @@ import faiss
 class Retriever:
     def __init__(self, faiss_index_path: str = "data/cancer_index_checkpoint.faiss",
                  chunks_pkl_path: str = "data/cancer_chunks.pkl",
-                 top_k: int = 5):
-        self.top_k = top_k
+                 top_k: int = None):
+        from backend import config  # lazy import to avoid cycles in some envs
+        self.top_k = top_k if top_k is not None else config.TOP_K
         self.embedder = EmbeddingGenerator()
         self.dimension = self.embedder.model.get_sentence_embedding_dimension()
 

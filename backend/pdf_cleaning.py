@@ -6,6 +6,11 @@ import os
 from nltk.tokenize import sent_tokenize
 from transformers import AutoTokenizer
 
+try:
+    from backend import config  # pragma: no cover
+except ImportError:  # pragma: no cover
+    import config
+
 PDF_FILES = [
     "data/Medical_book.pdf",
     "data/Encyclopedia of Cancer, 3rd Edition.pdf"
@@ -21,7 +26,7 @@ ORGANS = ["lung", "brain", "breast", "skin", "anus", "kidney"]
 TREATMENTS = ["surgery", "chemotherapy", "radiotherapy", "immunotherapy", "targeted therapy"]
 TUMOR_CHARACTERISTICS = ["malignant", "benign", "infiltrating", "metastatic", "high-grade", "low-grade"]
 
-tokenizer = AutoTokenizer.from_pretrained("dmis-lab/biobert-base-cased-v1.1-squad")
+tokenizer = AutoTokenizer.from_pretrained(config.BIOBERT_MODEL)
 
 
 def extract_text_from_pdf(pdf_path, skip_first_page=True):

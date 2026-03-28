@@ -1,13 +1,14 @@
 from transformers import pipeline, AutoTokenizer, AutoModelForQuestionAnswering
 import os
 
+try:
+    from backend import config  # pragma: no cover
+except ImportError:  # pragma: no cover
+    import config
+
 class BioBertQA:
-    def __init__(self, model_name="dmis-lab/biobert-base-cased-v1.1-squad", device=-1):
-      
-        if os.path.isdir(model_name):
-            model_path = model_name
-        else:
-            model_path = model_name  
+    def __init__(self, model_name=None, device=-1):
+        model_path = model_name or config.BIOBERT_MODEL
 
         self.qa = pipeline(
             "question-answering",
