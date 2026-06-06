@@ -1,12 +1,16 @@
 import pickle
 from typing import List, Optional,Tuple
-from retrieval.qa_types import RetrievedChunk
+from pathlib import Path
+from .qa_types import RetrievedChunk
 import numpy as np
-from embeddings import EmbeddingGenerator
+from ..embeddings import EmbeddingGenerator
+
+BASE_DIR = Path(__file__).resolve().parents[1]
+DATA_DIR = BASE_DIR / "data"
 
 class KnowledgeBase:
-    def __init__(self, faiss_pkl_path: str = "data/cancer_chunks.pkl", top_k: int = None):
-        from backend import config  # local import to avoid circular dependency
+    def __init__(self, faiss_pkl_path: str = str(DATA_DIR / "cancer_chunks.pkl"), top_k: int = None):
+        from .. import config  # local import to avoid circular dependency
         self.top_k = top_k if top_k is not None else config.TOP_K
         # Fallback static entries
         self.entries: List[Tuple[List[str], str]] = [

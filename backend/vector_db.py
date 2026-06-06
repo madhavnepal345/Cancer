@@ -2,7 +2,7 @@ import pickle
 import logging
 from typing import List, Optional
 import numpy as np
-from embeddings import EmbeddingGenerator  
+from .embeddings import EmbeddingGenerator  
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -31,7 +31,7 @@ class FaissRetriever:
             raise e
 
     def fetch(self, query: str, top_k: int = None) -> List[RetrievedChunk]:
-        from backend import config  # avoid top-level circular import
+        from . import config  # avoid top-level circular import
         top_k = top_k if top_k is not None else config.TOP_K
        
         try:

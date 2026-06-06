@@ -2,7 +2,7 @@ from transformers import pipeline, AutoTokenizer, AutoModelForQuestionAnswering
 import os
 
 try:
-    from backend import config  # pragma: no cover
+    from .. import config  # pragma: no cover
 except ImportError:  # pragma: no cover
     import config
 

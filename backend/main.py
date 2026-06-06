@@ -4,6 +4,7 @@ import logging
 import traceback
 import csv
 import re
+from pathlib import Path
 from typing import List, Set
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -22,12 +23,15 @@ app = FastAPI(
     description="Provides answers to cancer-related questions using FAISS embeddings and LLMs (OncoBot)",
 )
 
-FAISS_INDEX_PATH = "./data/cancer_index_checkpoint.faiss"
-CHUNKS_PKL_PATH = "./data/cancer_chunks.pkl"
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "data"
+
+FAISS_INDEX_PATH = str(DATA_DIR / "cancer_index_checkpoint.faiss")
+CHUNKS_PKL_PATH = str(DATA_DIR / "cancer_chunks.pkl")
 TOP_K = config.TOP_K
 EVAL_K = TOP_K
-LIVE_RESPONSES_PATH = "./data/live_responses.txt"
-EVAL_RESULTS_PATH = "./data/evaluation_results.csv"
+LIVE_RESPONSES_PATH = str(DATA_DIR / "live_responses.txt")
+EVAL_RESULTS_PATH = str(DATA_DIR / "evaluation_results.csv")
 RELEVANCE_FIELDS = ("cancer_types", "organs_affected", "tumor_characteristics", "treatments")
 
 file_lock = Lock()

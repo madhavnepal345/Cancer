@@ -23,6 +23,7 @@ It combines:
 -> Quantization Support: Run with 8-bit or 4-bit quantization for CPU/low-VRAM GPUs.
 
 
+
 # ⚙️ Installation
 
 # Clone repo
@@ -36,7 +37,32 @@ source venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
- 
+
+## 🐳 Docker
+
+Build and run the API in Docker:
+
+```bash
+docker compose up --build
+```
+
+Or with plain Docker:
+
+```bash
+docker build -t cancer-qa .
+docker run --rm -p 8000:8000 --env-file .env cancer-qa
+```
+
+The API will be available at `http://localhost:8000`.
+The FAISS index, chunk pickle, and response logs are read from and written to `backend/data/`.
+
+# Configure models (optional)
+# Update .env to point at your preferred checkpoints:
+# BIOBERT_MODEL=dmis-lab/biobert-base-cased-v1.1-squad
+# RAG_MODEL=google/flan-t5-base
+# LLAMA_MODEL=adityak74/medfit-llm-3B
+# EMBEDDING_MODEL=pritamdeka/S-PubMedBert-MS-MARCO
+
 # 📦 Dependencies
 Key libraries used:
 
@@ -71,8 +97,6 @@ Score is normalized 0.0 – 1.0.
 -> Improve dataset curation for metadata-rich retrieval
 
 -> Add evaluation benchmarks (BioASQ, PubMedQA)
-
--> Containerize with Docker for deployment
 
 # ⚖️ Disclaimer
 

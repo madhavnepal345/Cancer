@@ -7,15 +7,18 @@ from nltk.tokenize import sent_tokenize
 from transformers import AutoTokenizer
 
 try:
-    from backend import config  # pragma: no cover
+    from . import config  # pragma: no cover
 except ImportError:  # pragma: no cover
     import config
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+
 PDF_FILES = [
-    "data/Medical_book.pdf",
-    "data/Encyclopedia of Cancer, 3rd Edition.pdf"
+    os.path.join(DATA_DIR, "Medical_book.pdf"),
+    os.path.join(DATA_DIR, "Encyclopedia of Cancer, 3rd Edition.pdf")
 ]
-OUTPUT_FILE = "data/Combined_Cancer_Chunks.json"
+OUTPUT_FILE = os.path.join(DATA_DIR, "Combined_Cancer_Chunks.json")
 
 CHUNK_SIZE_TOKENS = 500     
 MIN_CHUNK_LENGTH = 300      

@@ -6,9 +6,10 @@ import numpy as np
 import os
 import time
 import torch
+from pathlib import Path
 
 try:
-    from backend import config  # pragma: no cover
+    from . import config  # pragma: no cover
 except ImportError:  # pragma: no cover
     import config
 
@@ -17,6 +18,9 @@ os.environ["MKL_NUM_THREADS"] = "4"
 
 device = 0 if torch.cuda.is_available() else -1  
 print("Using device:", device)
+
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "data"
 
 class EmbeddingGenerator:
     def __init__(self, model_name: str = None):
@@ -86,9 +90,9 @@ def build_and_save_faiss_checkpoint(
 
 if __name__ == "__main__":
     build_and_save_faiss_checkpoint(
-        json_path="data/Combined_Cancer_Chunks.json",
-        output_index_path="data/cancer_index_checkpoint.faiss",
-        output_chunks_path="data/cancer_chunks.pkl",
+        json_path=str(DATA_DIR / "Combined_Cancer_Chunks.json"),
+        output_index_path=str(DATA_DIR / "cancer_index_checkpoint.faiss"),
+        output_chunks_path=str(DATA_DIR / "cancer_chunks.pkl"),
         index_type="FlatIP",
         batch_size=16  
         

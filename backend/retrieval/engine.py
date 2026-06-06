@@ -5,12 +5,12 @@ from typing import List, Optional
 
 from .knowledgebase import KnowledgeBase
 from .qa_types import QAResult, RetrievedChunk
-from embeddings import EmbeddingGenerator
+from ..embeddings import EmbeddingGenerator
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 import torch
 
 try:
-    from backend import config  # pragma: no cover
+    from .. import config  # pragma: no cover
 except ImportError:  # pragma: no cover
     import config
 

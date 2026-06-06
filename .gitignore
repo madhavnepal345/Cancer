@@ -1,0 +1,50 @@
+# Environments & secrets
+.env
+.env.*
+.envrc
+venv/
+.venv/
+env/
+.codex/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+htmlcov/
+
+# Editors/OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+*.log
+*.tmp
+
+# Frontend artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Data outputs
+backend/data/*.faiss
+backend/data/*.pkl
+backend/data/*.txt
+backend/data/*.csv
+backend/data/*.json
+backend/data/*.pdf
+backend/data/*.ckpt
+backend/data/*.pt
+backend/data/*.pth
+backend/data/*.bin
+backend/data/*.safetensors
+backend/data/*.onnx

@@ -1,0 +1,14 @@
+.git
+.gitignore
+.env
+.codex
+env
+venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.csv
+*.tmp
+*.swp
